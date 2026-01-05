@@ -12,34 +12,37 @@ func getLinesChannel(f io.ReadCloser) <-chan string {
 	ch := make(chan string)
 
 	go func() {
+		defer f.Close()
+		defer close(ch)
 		for {
 			n, err := f.Read(b)
+			if n > 0 {
+				str := string(b[:n])
+				parts := strings.Split(str, "\n")
+				for i, part := range parts {
+					if i == len(parts)-1 {
+						currentLine += part
+					} else {
+						currentLine += part
+
+						ch <- currentLine
+
+						currentLine = ""
+					}
+				}
+			}
 			if err == io.EOF {
-				f.Close()
 				break
 			}
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
+				return
 			}
 
-			str := string(b[:n])
-			parts := strings.Split(str, "\n")
-			for i, part := range parts {
-				if i == len(parts)-1 {
-					currentLine += part
-				} else {
-					currentLine += part
-
-					ch <- currentLine
-
-					currentLine = ""
-				}
-			}
 		}
 		if len(currentLine) > 0 {
 			ch <- currentLine
 		}
-		close(ch)
 	}()
 	return ch
 }
