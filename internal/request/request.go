@@ -1,15 +1,26 @@
 package request
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"unicode"
 )
 
+const bufferSize = 8
+
 type Request struct {
 	RequestLine RequestLine
+	ParserState ParserState
 }
+
+type ParserState int
+
+const (
+	initialized = 0
+	done        = 1
+)
 
 type RequestLine struct {
 	HttpVersion   string
@@ -17,26 +28,58 @@ type RequestLine struct {
 	Method        string
 }
 
-func parseRequestLine(buff []byte) (RequestLine, error) {
-	str := string(buff)
-	lines := strings.Split(str, "\r\n")
-	split := strings.Split(lines[0], " ")
+func (r *Request) parse(data []byte) (int, error) {
+	if r.ParserState == initialized {
+		line, n, err := parseRequestLine(data)
+		if err != nil {
+			return 0, fmt.Errorf("failed to parse request line: %w", err)
+		}
+		if n == 0 {
+			return 0, nil
+		}
 
-	if len(split) != 3 {
-		return RequestLine{}, fmt.Errorf("invalid number of parts in request line")
+		r.RequestLine = line
+		r.ParserState = done
+
+		return n, nil
+
+	} else if r.ParserState == done {
+		return 0, errors.New("error: trying to read data in a done state")
+	} else {
+		return 0, errors.New("error: unknown state")
+	}
+}
+
+func parseRequestLine(buff []byte) (RequestLine, int, error) {
+	str := string(buff)
+
+	hasNewLine := strings.Contains(str, "\r\n")
+	if !hasNewLine {
+		return RequestLine{}, 0, nil
+	}
+	parts := strings.SplitAfter(str, "\r\n")
+	firstLineWithCRLF := parts[0]
+	n := len(firstLineWithCRLF)
+
+	linesText := firstLineWithCRLF[:n-2]
+
+	fields := strings.Split(linesText, " ")
+
+	if len(fields) != 3 {
+		return RequestLine{}, n, fmt.Errorf("invalid number of parts in request line")
 	}
 
-	m, t, v := split[0], split[1], split[2]
+	m, t, v := fields[0], fields[1], fields[2]
 
 	for _, r := range m {
 		if !unicode.IsUpper(r) || !unicode.IsLetter(r) {
-			return RequestLine{}, fmt.Errorf("found a non-alphabet or lowercase character while parsing request line")
+			return RequestLine{}, n, fmt.Errorf("found a non-alphabet or lowercase character while parsing request line")
 		}
 	}
 
 	splitVersion := strings.Split(v, "/")
 	if splitVersion[1] != "1.1" {
-		return RequestLine{}, fmt.Errorf("http version was not '1.1'")
+		return RequestLine{}, n, fmt.Errorf("http version was not '1.1'")
 	}
 	ver := splitVersion[1]
 
@@ -44,19 +87,45 @@ func parseRequestLine(buff []byte) (RequestLine, error) {
 		HttpVersion:   ver,
 		RequestTarget: t,
 		Method:        m,
-	}, nil
+	}, n, nil
 }
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
-	buff, err := io.ReadAll(reader)
-	if err != nil {
-		return &Request{}, fmt.Errorf("failed to read into bytes: %w", err)
-	}
+	buff := make([]byte, bufferSize)
 
-	req, err := parseRequestLine(buff)
-	if err != nil {
-		return &Request{}, fmt.Errorf("failed to parse request line: %w", err)
-	}
+	var readToIndex int
+	readToIndex = 0
 
-	return &Request{RequestLine: req}, nil
+	req := Request{
+		ParserState: initialized,
+	}
+	for req.ParserState != done {
+		if len(buff) == bufferSize {
+			newBuff := make([]byte, len(buff)*2)
+			copy(newBuff, buff)
+			buff = newBuff
+		}
+		n, err := reader.Read(buff[readToIndex:])
+		if err == io.EOF {
+			req.ParserState = done
+			break
+		}
+		if err != nil {
+			return &Request{}, fmt.Errorf("failed to read from index: %w", err)
+		}
+		readToIndex = n
+
+		nn, err := req.parse(buff[:readToIndex])
+		if err != nil {
+			return &Request{}, fmt.Errorf("failed to parse request: %w", err)
+		}
+
+		newerBuff := make([]byte, nn)
+		nnn := copy(newerBuff, buff)
+		buff = buff[nnn:]
+
+		readToIndex -= nn
+
+	}
+	return &req, nil
 }
