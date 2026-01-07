@@ -100,31 +100,28 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		ParserState: initialized,
 	}
 	for req.ParserState != done {
-		if len(buff) == bufferSize {
+		if readToIndex >= len(buff) {
 			newBuff := make([]byte, len(buff)*2)
 			copy(newBuff, buff)
 			buff = newBuff
 		}
 		n, err := reader.Read(buff[readToIndex:])
 		if err == io.EOF {
-			req.ParserState = done
 			break
 		}
 		if err != nil {
 			return &Request{}, fmt.Errorf("failed to read from index: %w", err)
 		}
-		readToIndex = n
+		readToIndex += n
 
-		nn, err := req.parse(buff[:readToIndex])
+		bytesConsumed, err := req.parse(buff[:readToIndex])
 		if err != nil {
 			return &Request{}, fmt.Errorf("failed to parse request: %w", err)
 		}
 
-		newerBuff := make([]byte, nn)
-		nnn := copy(newerBuff, buff)
-		buff = buff[nnn:]
+		copy(buff, buff[bytesConsumed:readToIndex])
 
-		readToIndex -= nn
+		readToIndex -= bytesConsumed
 
 	}
 	return &req, nil
