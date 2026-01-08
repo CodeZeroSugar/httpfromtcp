@@ -1,7 +1,9 @@
 package headers
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -9,34 +11,42 @@ import (
 type Headers map[string]string
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	str := string(data)
-	n = 0
+	if bytes.Index(data, []byte("\r\n")) == 0 {
+		return 2, true, nil
+	}
 
-	hasNewLine := strings.Contains(str, "\r\n")
-	if !hasNewLine {
+	str := string(data)
+
+	splitNewLine := strings.Split(str, "\r\n")
+	if len(splitNewLine) == 1 {
 		return 0, false, nil
 	}
 
-	for i := 0; i < len(str)-2; i++ {
-		if str[i:i+2] == "\r\n" {
-			n = i + 2
-			break
-		}
-	}
-	if n == 0 {
-		return n, true, nil
+	headerLine := splitNewLine[0]
+
+	splitColon := strings.Split(headerLine, ":")
+	if len(splitColon) == 1 {
+		return 0, false, errors.New("malformed data, could not find ':'")
 	}
 
-	field := str[:n-2]
-	splitField := strings.Split(field, ":")
-	fieldName := strings.TrimLeft(splitField[0], " ")
+	n += len(headerLine) + 2
+
+	fieldName := strings.ToLower(strings.TrimLeft(splitColon[0], " "))
+	reg := regexp.MustCompile(`[\w!#$%'+-*.^`|~]`)
 
 	runes := []rune(fieldName)
 	if unicode.IsSpace(runes[len(runes)-1]) {
-		return 0, false, fmt.Errorf("invalid whitespace found before ':' character: %w", err)
+		return 0, false, errors.New("invalid whitespace found before ':' character")
 	}
 
-	fieldValue := strings.Trim(splitField[1], " ") + ":" + strings.Trim(splitField[2], " ")
+	trimmedValues := make([]string, 0)
+
+	for _, slice := range splitColon[1:] {
+		trimmed := strings.Trim(slice, " ")
+		trimmedValues = append(trimmedValues, trimmed)
+	}
+
+	fieldValue := strings.Join(trimmedValues, ":")
 
 	h[fieldName] = fieldValue
 	return n, false, nil
