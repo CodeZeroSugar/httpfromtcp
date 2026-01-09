@@ -8,6 +8,15 @@ import (
 	"unicode"
 )
 
+var validFieldName = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+\-.^_` + "`" + `|~]+$`)
+
+func validateFieldName(fieldName string) error {
+	if !validFieldName.MatchString(fieldName) {
+		return errors.New("malformed data, invalid character found in field name")
+	}
+	return nil
+}
+
 type Headers map[string]string
 
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
@@ -32,7 +41,13 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	n += len(headerLine) + 2
 
 	fieldName := strings.ToLower(strings.TrimLeft(splitColon[0], " "))
-	reg := regexp.MustCompile(`[\w!#$%'+-*.^`|~]`)
+	if len(fieldName) < 1 {
+		return 0, false, errors.New("field name is null")
+	}
+
+	if err = validateFieldName(fieldName); err != nil {
+		return 0, false, err
+	}
 
 	runes := []rune(fieldName)
 	if unicode.IsSpace(runes[len(runes)-1]) {
@@ -47,7 +62,12 @@ func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	}
 
 	fieldValue := strings.Join(trimmedValues, ":")
+	_, exists := h[fieldName]
+	if exists {
+		h[fieldName] += ", " + fieldValue
+	} else {
+		h[fieldName] = fieldValue
+	}
 
-	h[fieldName] = fieldValue
 	return n, false, nil
 }
