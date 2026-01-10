@@ -51,6 +51,7 @@ func (r *Request) parse(data []byte) (int, error) {
 }
 
 func (r *Request) parseSingle(data []byte) (int, error) {
+	bytesParsed := 0
 	switch r.ParserState {
 	case requestStateInitialized:
 		line, n, err := parseRequestLine(data)
@@ -61,20 +62,22 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 			return 0, nil
 		}
 
+		bytesParsed += n
 		r.RequestLine = line
 		r.ParserState = requestStateParsingHeaders
 
-		return n, nil
+		return bytesParsed, nil
 
 	case requestStateParsingHeaders:
 		n, done, err := r.Headers.Parse(data)
 		if err != nil {
 			return 0, err
 		}
+		bytesParsed += n
 		if done {
 			r.ParserState = requestStateParsingBody
 		}
-		return n, nil
+		return bytesParsed, nil
 
 	case requestStateParsingBody:
 		value, exists := r.Headers.Get("Content-Length")
@@ -93,8 +96,9 @@ func (r *Request) parseSingle(data []byte) (int, error) {
 		if len(r.Body) == contentLength {
 			r.ParserState = requestStateDone
 		}
+		bytesParsed += len(data)
 
-		return len(r.Body), nil
+		return bytesParsed, nil
 
 	case requestStateDone:
 		return 0, errors.New("error: trying to read data in a done state")
