@@ -19,6 +19,16 @@ func validateFieldName(fieldName string) error {
 
 type Headers map[string]string
 
+func NewHeaders() Headers {
+	return make(Headers)
+}
+
+func (h Headers) Get(key string) (string, bool) {
+	key = strings.ToLower(key)
+	value, exists := h[key]
+	return value, exists
+}
+
 func (h Headers) Parse(data []byte) (n int, done bool, err error) {
 	if bytes.Index(data, []byte("\r\n")) == 0 {
 		return 2, true, nil
