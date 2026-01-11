@@ -20,12 +20,13 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 	var reason string
 	switch statusCode {
 	case OK:
+		reason = "HTTP/1.1 200 OK \r\n"
 	case BadRequest:
-		reason = "HTTP/1.1 400 Bad Request"
+		reason = "HTTP/1.1 400 Bad Request\r\n"
 	case InternalServerError:
-		reason = "HTTP/1.1 500 Internal Server Error"
+		reason = "HTTP/1.1 500 Internal Server Error\r\n"
 	default:
-		reason = ""
+		reason = fmt.Sprintf("HTTP/1.1 %v \r\n", statusCode)
 	}
 	_, err := w.Write([]byte(reason))
 	if err != nil {
@@ -36,9 +37,9 @@ func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
 
 func GetDefaultHeaders(contentLen int) headers.Headers {
 	h := headers.NewHeaders()
-	h["Content-Length"] = strconv.Itoa(contentLen)
-	h["Connection"] = "close"
-	h["Content-Type"] = "text/plain"
+	h["Content-Length"] = strconv.Itoa(contentLen) + "\r\n"
+	h["Connection"] = "close\r\n"
+	h["Content-Type"] = "text/plain\r\n"
 	return h
 }
 
@@ -49,6 +50,10 @@ func WriteHeaders(w io.Writer, headers headers.Headers) error {
 		if err != nil {
 			return fmt.Errorf("failed to write '%s' for headers: %w", payload, err)
 		}
+	}
+	_, err := w.Write([]byte("\r\n"))
+	if err != nil {
+		return fmt.Errorf("failed to add blank line before body:%w", err)
 	}
 	return nil
 }

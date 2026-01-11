@@ -1,12 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync/atomic"
 
+	"github.com/CodeZeroSugar/internal/request"
 	"github.com/CodeZeroSugar/internal/response"
 )
 
@@ -15,7 +19,23 @@ type Server struct {
 	Listener    net.Listener
 }
 
-func Serve(port int) (*Server, error) {
+type HandlerError struct {
+	StatusCode response.StatusCode
+	Message    string
+}
+
+type Handler func(w io.Writer, req *request.Request) *HandlerError
+
+func WriteError(conn io.Writer, error *HandlerError) error {
+	payload := fmt.Sprintf("%d %s\r\n", error.StatusCode, error.Message)
+	_, err := conn.Write([]byte(payload))
+	if err != nil {
+		return fmt.Errorf("failed to write HandlerError to connection: %w", err)
+	}
+	return nil
+}
+
+func Serve(port int, handler Handler) (*Server, error) {
 	address := ":" + strconv.Itoa(port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -29,7 +49,7 @@ func Serve(port int) (*Server, error) {
 		Listener:    listener,
 	}
 
-	go server.listen()
+	go server.listen(handler)
 
 	return &server, nil
 }
@@ -43,38 +63,46 @@ func (s *Server) Close() error {
 	return nil
 }
 
-func (s *Server) listen() {
+func (s *Server) listen(handler Handler) {
 	for {
-		if !s.ServerState.Load() {
-			return
-		}
 		conn, err := s.Listener.Accept()
 		if err != nil {
 			if !s.ServerState.Load() {
+				return
+			}
+			if strings.Contains(err.Error(), "use of closed network connection") {
 				return
 			}
 			log.Printf("failed to accept connection: %s", err)
 			continue
 		}
 
-		go s.handle(conn)
+		go s.handle(conn, handler)
 	}
 }
 
-func (s *Server) handle(conn net.Conn) {
+func (s *Server) handle(conn net.Conn, handler Handler) {
 	defer conn.Close()
-	resp := "HTTP/1.1 200 OK\r\n" +
-		"Content-Type: text/plain\r\n" +
-		"Hello World!\n"
-
-	err := response.WriteStatusLine(conn, 200)
+	request, err := request.RequestFromReader(conn)
 	if err != nil {
-		log.Printf("failed to write status line: %s", err)
+		log.Printf("failed to read request from connection: %s", err)
 	}
-	err = response.WriteHeaders(conn)
-
-	_, err := conn.Write([]byte(resp))
-	if err != nil {
-		log.Printf("failed to write response to connection: %s", err)
+	buf := new(bytes.Buffer)
+	handlerError := handler(buf, request)
+	if handlerError != nil {
+		err = WriteError(conn, handlerError)
+		if err != nil {
+			log.Printf("failed to write error to connection: %s", err)
+		}
+	} else {
+		h := response.GetDefaultHeaders(0)
+		err := response.WriteStatusLine(conn, response.OK)
+		if err != nil {
+			log.Printf("failed to write status line: %s", err)
+		}
+		err = response.WriteHeaders(conn, h)
+		if err != nil {
+			log.Printf("failed to write headers: %s", err)
+		}
 	}
 }
