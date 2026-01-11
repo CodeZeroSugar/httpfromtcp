@@ -17,14 +17,14 @@ const port = 42069
 func handler(w io.Writer, req *request.Request) *server.HandlerError {
 	if req.RequestLine.RequestTarget == "/yourproblem" {
 		notFound := server.HandlerError{
-			StatusCode: response.BadRequest,
+			StatusCode: response.StatusCodeBadRequest,
 			Message:    "Your problem is not my problem\n",
 		}
 		return &notFound
 	}
 	if req.RequestLine.RequestTarget == "/myproblem" {
 		serverError := server.HandlerError{
-			StatusCode: response.InternalServerError,
+			StatusCode: response.StatusCodeInternalServerError,
 			Message:    "Woopsie, my bad\n",
 		}
 		return &serverError
@@ -33,7 +33,7 @@ func handler(w io.Writer, req *request.Request) *server.HandlerError {
 	_, err := w.Write([]byte(msg))
 	if err != nil {
 		serverError := server.HandlerError{
-			StatusCode: response.InternalServerError,
+			StatusCode: response.StatusCodeInternalServerError,
 			Message:    "Woopsie, my bad\n",
 		}
 		return &serverError

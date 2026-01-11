@@ -2,48 +2,55 @@ package response
 
 import (
 	"fmt"
-	"io"
 	"strconv"
 
 	"github.com/CodeZeroSugar/internal/headers"
 )
 
+type WriterState int
+
+const (
+	StatusLine WriterState = 0
+	Headers    WriterState = 1
+	Body       WriterState = 2
+)
+
 type StatusCode int
 
 const (
-	OK                  = 200
-	BadRequest          = 400
-	InternalServerError = 500
+	StatusCodeOK                  StatusCode = 200
+	StatusCodeBadRequest          StatusCode = 400
+	StatusCodeInternalServerError StatusCode = 500
 )
 
-func WriteStatusLine(w io.Writer, statusCode StatusCode) error {
+type Writer struct {
+	StatusCode  StatusCode
+	Headers     headers.Headers
+	Body        string
+	writerState WriterState
+}
+
+func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	var reason string
 	switch statusCode {
-	case OK:
-		reason = "HTTP/1.1 200 OK \r\n"
-	case BadRequest:
-		reason = "HTTP/1.1 400 Bad Request\r\n"
-	case InternalServerError:
-		reason = "HTTP/1.1 500 Internal Server Error\r\n"
+	case StatusCodeOK:
+		reason = "OK"
+	case StatusCodeBadRequest:
+		reason = "Bad Request"
+	case StatusCodeInternalServerError:
+		reason = "Internal Server Error"
 	default:
-		reason = fmt.Sprintf("HTTP/1.1 %v \r\n", statusCode)
+		reason = ""
 	}
-	_, err := w.Write([]byte(reason))
+	line := fmt.Sprintf("HTTP/1.1 %d %s", statusCode, reason)
+	_, err := w.Write([]byte(line))
 	if err != nil {
-		return fmt.Errorf("failed to write reason for status code '%d': %w", statusCode, err)
+		return fmt.Errorf("failed to write status line: %w", err)
 	}
 	return nil
 }
 
-func GetDefaultHeaders(contentLen int) headers.Headers {
-	h := headers.NewHeaders()
-	h["Content-Length"] = strconv.Itoa(contentLen) + "\r\n"
-	h["Connection"] = "close\r\n"
-	h["Content-Type"] = "text/plain\r\n"
-	return h
-}
-
-func WriteHeaders(w io.Writer, headers headers.Headers) error {
+func (w *Writer) WriteHeaders(headers headers.Headers) error {
 	for key, value := range headers {
 		payload := key + ": " + value
 		_, err := w.Write([]byte(payload))
@@ -56,4 +63,16 @@ func WriteHeaders(w io.Writer, headers headers.Headers) error {
 		return fmt.Errorf("failed to add blank line before body:%w", err)
 	}
 	return nil
+}
+
+func (w *Writer) WriteBody(p []byte) (int, error) {
+	return 0, nil
+}
+
+func GetDefaultHeaders(contentLen int) headers.Headers {
+	h := headers.NewHeaders()
+	h["Content-Length"] = strconv.Itoa(contentLen) + "\r\n"
+	h["Connection"] = "close\r\n"
+	h["Content-Type"] = "text/plain\r\n"
+	return h
 }
