@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -12,41 +11,91 @@ import (
 	"github.com/CodeZeroSugar/internal/server"
 )
 
-const port = 42069
+const okHTML = `<html>
+  <head>
+    <title>200 OK</title>
+  </head>
+  <body>
+    <h1>Success!</h1>
+    <p>Your request was an absolute banger.</p>
+  </body>
+</html>`
 
-func handler(w io.Writer, req *request.Request) *server.HandlerError {
-	if req.RequestLine.RequestTarget == "/yourproblem" {
-		notFound := server.HandlerError{
-			StatusCode: response.StatusCodeBadRequest,
-			Message:    "Your problem is not my problem\n",
+const badRequestHTML = `<html>
+  <head>
+    <title>400 Bad Request</title>
+  </head>
+  <body>
+    <h1>Bad Request</h1>
+    <p>Your request honestly kinda sucked.</p>
+  </body>
+</html>`
+
+const internalErrorHTML = `<html>
+  <head>
+    <title>500 Internal Server Error</title>
+  </head>
+  <body>
+    <h1>Internal Server Error</h1>
+    <p>Okay, you know what? This one is on me.</p>
+  </body>
+</html>`
+
+const (
+	port = 42069
+)
+
+func handler(w *response.Writer, req *request.Request) {
+	if req.RequestLine.RequestTarget == "/" {
+		body := []byte(okHTML)
+		h := response.GetDefaultHeaders(len(body))
+		h["Content-Type"] = "text/html"
+		if err := w.WriteStatusLine(response.StatusCodeOK); err != nil {
+			log.Printf("handler failed to write status line: %s", err)
 		}
-		return &notFound
+		if err := w.WriteHeaders(h); err != nil {
+			log.Printf("handler failed to write headers: %s", err)
+		}
+		if _, err := w.WriteBody(body); err != nil {
+			log.Printf("handler failed to write body: %s", err)
+		}
+	}
+	if req.RequestLine.RequestTarget == "/yourproblem" {
+		body := []byte(badRequestHTML)
+		h := response.GetDefaultHeaders(len(body))
+		h["Content-Type"] = "text/html"
+		if err := w.WriteStatusLine(response.StatusCodeBadRequest); err != nil {
+			log.Printf("handler failed to write status line: %s", err)
+		}
+		if err := w.WriteHeaders(h); err != nil {
+			log.Printf("handler failed to write headers: %s", err)
+		}
+		if _, err := w.WriteBody(body); err != nil {
+			log.Printf("handler failed to write body: %s", err)
+		}
 	}
 	if req.RequestLine.RequestTarget == "/myproblem" {
-		serverError := server.HandlerError{
-			StatusCode: response.StatusCodeInternalServerError,
-			Message:    "Woopsie, my bad\n",
+		body := []byte(internalErrorHTML)
+		h := response.GetDefaultHeaders(len(body))
+		h["Content-Type"] = "text/html"
+		if err := w.WriteStatusLine(response.StatusCodeInternalServerError); err != nil {
+			log.Printf("handler failed to write status line: %s", err)
 		}
-		return &serverError
-	}
-	msg := "All good, frfr\n"
-	_, err := w.Write([]byte(msg))
-	if err != nil {
-		serverError := server.HandlerError{
-			StatusCode: response.StatusCodeInternalServerError,
-			Message:    "Woopsie, my bad\n",
+		if err := w.WriteHeaders(h); err != nil {
+			log.Printf("handler failed to write headers: %s", err)
 		}
-		return &serverError
+		if _, err := w.WriteBody(body); err != nil {
+			log.Printf("handler failed to write body: %s", err)
+		}
 	}
-	return nil
 }
 
 func main() {
-	server, err := server.Serve(port, handler)
+	srv, err := server.Serve(port, handler)
 	if err != nil {
 		log.Fatalf("Error starting server: %v", err)
 	}
-	defer server.Close()
+	defer srv.Close()
 	log.Println("Server started on port", port)
 
 	sigChan := make(chan os.Signal, 1)

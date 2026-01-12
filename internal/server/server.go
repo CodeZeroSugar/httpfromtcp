@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"strconv"
@@ -20,29 +18,7 @@ type Server struct {
 	handler  Handler
 }
 
-type HandlerError struct {
-	StatusCode response.StatusCode
-	Message    string
-}
-
-type Handler func(w io.Writer, req *request.Request) *HandlerError
-
-func WriteError(conn io.Writer, herr *HandlerError) error {
-	err := response.WriteStatusLine(conn, herr.StatusCode)
-	if err != nil {
-		return fmt.Errorf("failed to write status line in write error: %w", err)
-	}
-	h := response.GetDefaultHeaders(len(herr.Message))
-	err = response.WriteHeaders(conn, h)
-	if err != nil {
-		return fmt.Errorf("failed to write headers in write error: %w", err)
-	}
-	_, err = conn.Write([]byte(herr.Message))
-	if err != nil {
-		return fmt.Errorf("failed to write message for handler error: %w", err)
-	}
-	return nil
-}
+type Handler func(w *response.Writer, req *request.Request)
 
 func Serve(port int, handler Handler) (*Server, error) {
 	address := ":" + strconv.Itoa(port)
@@ -90,39 +66,11 @@ func (s *Server) listen() {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	request, err := request.RequestFromReader(conn)
+	req, err := request.RequestFromReader(conn)
+	w := response.NewWriter(conn)
 	if err != nil {
-		herr := HandlerError{
-			StatusCode: response.StatusCodeBadRequest,
-			Message:    "something wasn't handled correctly",
-		}
-		log.Printf("request from reader failed, sending notification to client: %s", err)
-		err = WriteError(conn, &herr)
-		if err != nil {
-			log.Printf("write error caused an error: %s", err)
-		}
+		s.handler(w, req)
 		return
 	}
-	buf := new(bytes.Buffer)
-	handlerError := s.handler(buf, request)
-	if handlerError != nil {
-		err = WriteError(conn, handlerError)
-		if err != nil {
-			log.Printf("failed to write error to connection: %s", err)
-		}
-	} else {
-		h := response.GetDefaultHeaders(buf.Len())
-		err := response.WriteStatusLine(conn, response.StatusCodeOK)
-		if err != nil {
-			log.Printf("failed to write status line: %s", err)
-		}
-		err = response.WriteHeaders(conn, h)
-		if err != nil {
-			log.Printf("failed to write headers: %s", err)
-		}
-		_, err = conn.Write(buf.Bytes())
-		if err != nil {
-			log.Printf("failed to write body: %s", err)
-		}
-	}
+	s.handler(w, req)
 }
