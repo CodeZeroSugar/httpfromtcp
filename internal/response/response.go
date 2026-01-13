@@ -36,6 +36,27 @@ func NewWriter(w io.Writer) *Writer {
 	}
 }
 
+func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
+	hexString := fmt.Sprintf("%02X\r\n", len(p))
+	hexBytes := []byte(hexString)
+	hexBytes = append(hexBytes, p...)
+	hexBytes = append(hexBytes, "\r\n"...)
+	_, err := w.WriteBody(hexBytes)
+	if err != nil {
+		return 0, fmt.Errorf("failed to write chunked body: %w", err)
+	}
+	return len(p), nil
+}
+
+func (w *Writer) WriteChunkedBodyDone() (int, error) {
+	chunkDone := "0\r\n\r\n"
+	n, err := w.WriteBody([]byte(chunkDone))
+	if err != nil {
+		return 0, fmt.Errorf("failed to write chunked body as done: %w", err)
+	}
+	return n, nil
+}
+
 func (w *Writer) WriteStatusLine(statusCode StatusCode) error {
 	if w.writerState == StatusLine {
 		var reason string

@@ -1,11 +1,15 @@
 package main
 
 import (
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
+	"github.com/CodeZeroSugar/internal/headers"
 	"github.com/CodeZeroSugar/internal/request"
 	"github.com/CodeZeroSugar/internal/response"
 	"github.com/CodeZeroSugar/internal/server"
@@ -45,8 +49,56 @@ const (
 	port = 42069
 )
 
+const binURL = "https://httpbin.org/"
+
+func handleHTTPBinProxy(w *response.Writer, req *request.Request) {
+	path := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
+	fullURL := binURL + path
+	h := headers.NewHeaders()
+	h.Set("Transfer-Encoding", "chunked")
+
+	resp, err := http.Get(fullURL)
+	if err != nil {
+		log.Printf("failed to GET response from httpbin: %s", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if err = w.WriteStatusLine(response.StatusCode(resp.StatusCode)); err != nil {
+		log.Printf("failed to write status line: %s", err)
+	}
+	if err = w.WriteHeaders(h); err != nil {
+		log.Printf("failed to write headers: %s", err)
+	}
+
+	buf := make([]byte, 1024)
+
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			_, err = w.WriteChunkedBody(buf[:n])
+			if err != nil {
+				log.Printf("failed to write chunked body: %s", err)
+				break
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Printf("failed to read body of response: %s", err)
+			break
+		}
+	}
+	_, err = w.WriteChunkedBodyDone()
+	if err != nil {
+		log.Printf("something went wrong when chunked body was done: %s", err)
+	}
+}
+
 func handler(w *response.Writer, req *request.Request) {
-	if req.RequestLine.RequestTarget == "/" {
+	path := req.RequestLine.RequestTarget
+	if path == "/" {
 		body := []byte(okHTML)
 		h := response.GetDefaultHeaders(len(body))
 		h["Content-Type"] = "text/html"
@@ -60,7 +112,7 @@ func handler(w *response.Writer, req *request.Request) {
 			log.Printf("handler failed to write body: %s", err)
 		}
 	}
-	if req.RequestLine.RequestTarget == "/yourproblem" {
+	if path == "/yourproblem" {
 		body := []byte(badRequestHTML)
 		h := response.GetDefaultHeaders(len(body))
 		h["Content-Type"] = "text/html"
@@ -74,7 +126,7 @@ func handler(w *response.Writer, req *request.Request) {
 			log.Printf("handler failed to write body: %s", err)
 		}
 	}
-	if req.RequestLine.RequestTarget == "/myproblem" {
+	if path == "/myproblem" {
 		body := []byte(internalErrorHTML)
 		h := response.GetDefaultHeaders(len(body))
 		h["Content-Type"] = "text/html"
@@ -87,6 +139,9 @@ func handler(w *response.Writer, req *request.Request) {
 		if _, err := w.WriteBody(body); err != nil {
 			log.Printf("handler failed to write body: %s", err)
 		}
+	}
+	if strings.HasPrefix(path, "/httpbin/") {
+		handleHTTPBinProxy(w, req)
 	}
 }
 
