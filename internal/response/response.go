@@ -1,6 +1,7 @@
 package response
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -36,6 +37,24 @@ func NewWriter(w io.Writer) *Writer {
 	}
 }
 
+func (w *Writer) WriteTrailers(h headers.Headers) error {
+	if len(h) == 0 {
+		return errors.New("tried to write trailers but none exist")
+	}
+	for key, value := range h {
+		payload := fmt.Sprintf("%s: %s\r\n", key, value)
+		_, err := w.conn.Write([]byte(payload))
+		if err != nil {
+			return fmt.Errorf("failed to write trailers: %w", err)
+		}
+	}
+	_, err := w.conn.Write([]byte("\r\n"))
+	if err != nil {
+		return fmt.Errorf("failed to write newline after trailers: %w", err)
+	}
+	return nil
+}
+
 func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 	hexString := fmt.Sprintf("%02X\r\n", len(p))
 	hexBytes := []byte(hexString)
@@ -49,7 +68,7 @@ func (w *Writer) WriteChunkedBody(p []byte) (int, error) {
 }
 
 func (w *Writer) WriteChunkedBodyDone() (int, error) {
-	chunkDone := "0\r\n\r\n"
+	chunkDone := "0\r\n"
 	n, err := w.WriteBody([]byte(chunkDone))
 	if err != nil {
 		return 0, fmt.Errorf("failed to write chunked body as done: %w", err)

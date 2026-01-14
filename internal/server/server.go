@@ -13,7 +13,7 @@ import (
 )
 
 type Server struct {
-	closed   *atomic.Bool
+	closed   atomic.Bool
 	listener net.Listener
 	handler  Handler
 }
@@ -27,14 +27,14 @@ func Serve(port int, handler Handler) (*Server, error) {
 		return nil, fmt.Errorf("failed to create 'tcp' listener on address '%s': %w", address, err)
 	}
 
-	server := Server{
+	server := &Server{
 		listener: listener,
 		handler:  handler,
 	}
 
 	go server.listen()
 
-	return &server, nil
+	return server, nil
 }
 
 func (s *Server) Close() error {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -49,13 +51,19 @@ const (
 	port = 42069
 )
 
-const binURL = "https://httpbin.org/"
+const (
+	binURL   = "https://httpbin.org/"
+	xContent = "X-Content-Sha256"
+	xLength  = "X-Content-Length"
+)
 
 func handleHTTPBinProxy(w *response.Writer, req *request.Request) {
 	path := strings.TrimPrefix(req.RequestLine.RequestTarget, "/httpbin/")
 	fullURL := binURL + path
-	h := headers.NewHeaders()
+	h := response.GetDefaultHeaders(0)
 	h.Set("Transfer-Encoding", "chunked")
+	h.Set("Trailer", xContent+", "+xLength)
+	h.Del("Content-length")
 
 	resp, err := http.Get(fullURL)
 	if err != nil {
@@ -72,11 +80,13 @@ func handleHTTPBinProxy(w *response.Writer, req *request.Request) {
 	}
 
 	buf := make([]byte, 1024)
+	var bodyBuf []byte
 
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
 			_, err = w.WriteChunkedBody(buf[:n])
+			bodyBuf = append(bodyBuf, buf[:n]...)
 			if err != nil {
 				log.Printf("failed to write chunked body: %s", err)
 				break
@@ -93,6 +103,35 @@ func handleHTTPBinProxy(w *response.Writer, req *request.Request) {
 	_, err = w.WriteChunkedBodyDone()
 	if err != nil {
 		log.Printf("something went wrong when chunked body was done: %s", err)
+	}
+	trailers := headers.NewHeaders()
+
+	shaHash := sha256.Sum256(bodyBuf)
+	trailers.Set(xContent, fmt.Sprintf("%x", shaHash))
+	trailers.Set(xLength, fmt.Sprintf("%d", len(bodyBuf)))
+	if err = w.WriteTrailers(trailers); err != nil {
+		log.Printf("failed to write trailers: %s", err)
+		return
+	}
+}
+
+func handleVideo(w *response.Writer, req *request.Request) {
+	file, err := os.ReadFile("assets/vim.mp4")
+	if err != nil {
+		log.Printf("failed to read video: %s", err)
+	}
+	h := response.GetDefaultHeaders(len(file))
+	h.Set("Content-Type", "video/mp4")
+	if err := w.WriteStatusLine(response.StatusCodeOK); err != nil {
+		log.Printf("failed to write status line for video: %s", err)
+		return
+	}
+	if err := w.WriteHeaders(h); err != nil {
+		log.Printf("failed to write headers for video: %s", err)
+		return
+	}
+	if _, err := w.WriteBody(file); err != nil {
+		log.Printf("failed to write video: %s", err)
 	}
 }
 
@@ -142,6 +181,9 @@ func handler(w *response.Writer, req *request.Request) {
 	}
 	if strings.HasPrefix(path, "/httpbin/") {
 		handleHTTPBinProxy(w, req)
+	}
+	if path == "/video" {
+		handleVideo(w, req)
 	}
 }
 
